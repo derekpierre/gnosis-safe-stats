@@ -9,7 +9,15 @@ from gnosis.safe.safe import Safe
 from gnosis.safe.safe_tx import SafeTx
 from hexbytes import HexBytes
 from maya import MayaDT
-from typing import Any, Dict, Optional
+from statistics import mean, median, stdev
+from typing import Any, Dict, NamedTuple, Optional
+
+class SummaryStats(NamedTuple):
+    min: float
+    max: float
+    mean: float
+    median: float
+    stdev: float
 
 #
 # Safe Signer Stats
@@ -19,9 +27,10 @@ class SafeSignerStats:
         self.signer_address = address
         self.num_txs_created = 0
         self.num_signings = 0
+        self._signing_times = []
         self.num_executions = 0
         self.gas_spent = Decimal(0)
-        self._total_time_to_sign_seconds = 0
+
 
     def increment_tx_creation_count(self):
         self.num_txs_created += 1
@@ -38,15 +47,26 @@ class SafeSignerStats:
 
     def add_signing_time(self, tx_creation_date: MayaDT, signing_date: MayaDT):
         time_taken = (signing_date - tx_creation_date).seconds
-        self._total_time_to_sign_seconds += time_taken
+        self._signing_times.append(time_taken)
 
-    @property
-    def average_signing_time_taken(self):
-        if self.num_signings == self.num_txs_created:
-            # all txs were created by this signer so no average can be established
-            return 0
+    def signing_summary_stats(self) -> SummaryStats:
+        mean_time = mean(self._signing_times)
+        min_time = min(self._signing_times)
+        max_time = max(self._signing_times)
+        median_time = median(self._signing_times)
 
-        return self._total_time_to_sign_seconds / (self.num_signings - self.num_txs_created)
+        stdev_time = 0
+        if len(self._signing_times) > 1:
+            # requires at least 2 data points
+            stdev_time = stdev(self._signing_times)
+
+        return SummaryStats(
+            min=min_time,
+            max=max_time,
+            mean=mean_time,
+            median=median_time,
+            stdev=stdev_time
+        )
 
 
 #
@@ -132,7 +152,16 @@ def print_safe_stats(safe_address: str, eth_endpoint: str, from_block_number: Op
         print(f'\tSigner: {signer_stats.signer_address}')
         print('\t\tNum Txs Created ............ {} ({:.0%})'.format(signer_stats.num_txs_created, (signer_stats.num_txs_created / num_executed_transactions)))
         print('\t\tNum Txs Signed ............. {} ({:.0%})'.format(signer_stats.num_signings, (signer_stats.num_signings/num_executed_transactions)))
-        print('\t\t\tAverage Tx Signing Time .... {0:.2f} mins.'.format(signer_stats.average_signing_time_taken/60))
+
+        # summary stats
+        signing_summary_stats = signer_stats.signing_summary_stats()
+        print(f'\t\tStatistics for txs signed but not created ({signer_stats.num_signings - signer_stats.num_txs_created} txs):')
+        print('\t\t\tMin Tx Signing Time ........ {0:.2f} mins.'.format(signing_summary_stats.min / 60))
+        print('\t\t\tMax Tx Signing Time ........ {0:.2f} mins.'.format(signing_summary_stats.max / 60))
+        print('\t\t\tMean Tx Signing Time ....... {0:.2f} mins.'.format(signing_summary_stats.mean / 60))
+        print('\t\t\tMedian Tx Signing Time ..... {0:.2f} mins.'.format(signing_summary_stats.median / 60))
+        print('\t\t\tStdev Tx Signing Time ...... {0:.2f} mins.'.format(signing_summary_stats.stdev / 60))
+
         print('\t\tNum Txs Executed ........... {} ({:.0%})'.format(signer_stats.num_executions, (signer_stats.num_executions/num_executed_transactions)))
         print('\t\t\tGas Spent .................. {0:.2f} ETH'.format(signer_stats.gas_spent))
         print('\n')
