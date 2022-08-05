@@ -1,8 +1,15 @@
-Simple tool to gleam statistics from Gnosis Safe Multisig operations.  
+Simple tool to gleam statistics from Gnosis Safe Multisig operations.
+
+# Installation
+
+```bash
+$ pip install -r requirements.txt
+```
   
-Usage:  
+# Usage
+
 ```bash  
-python safe_stats.py <safe_address> <eth_endpoint> [from_block_number]
+$ python safe_stats.py <safe_address> <eth_endpoint> [from_block_number]
 ```
 where:  
 * *safe_address*: address of the Gnosis Safe Multisig
