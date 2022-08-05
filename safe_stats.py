@@ -32,8 +32,8 @@ class SafeSignerStats:
     def increment_execution_count(self):
         self.num_executions += 1
 
-    def add_gas_spent(self, tx: Dict[str, Any]):
-        gas_spent = from_wei((tx['gasUsed'] * int(tx['ethGasPrice'])), unit='ether')
+    def add_gas_spent(self, gas_spent: int):
+        gas_spent = from_wei(gas_spent, unit='ether')
         self.gas_spent += gas_spent
 
     def add_signing_time(self, tx_creation_date: MayaDT, signing_date: MayaDT):
@@ -107,7 +107,7 @@ def print_safe_stats(safe_address: str, eth_endpoint: str, from_block_number: Op
                 signer_stats_dict[executor] = SafeSignerStats(address=executor)
             executor_stats = signer_stats_dict[executor]
             executor_stats.increment_execution_count()
-            executor_stats.add_gas_spent(tx=tx)
+            executor_stats.add_gas_spent(gas_spent=int(tx['fee']))
 
         # signing
         confirmations = tx['confirmations']
