@@ -1,7 +1,7 @@
 import sys
 from decimal import Decimal
 from statistics import mean, median, stdev
-from typing import Any, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from eth_utils.currency import from_wei
 from gnosis.eth import EthereumClient
@@ -63,6 +63,35 @@ class SafeSignerStats:
         return SummaryStats(measurements=self._signing_times)
 
 
+class SafeStatsTransactionServiceApi(TransactionServiceApi):
+    TX_LIMIT = 100
+
+    def get_all_transactions(self, safe_address: str) -> List[Dict[str, Any]]:
+        request_url_base = f'/api/v1/safes/{safe_address}/multisig-transactions' \
+                           f'?limit={self.TX_LIMIT}'
+        current_nonce = None
+        transactions = []
+        while True:
+            request = request_url_base
+            if current_nonce:
+                request += f'&nonce__lt={current_nonce}'
+
+            # send request
+            response = self._get_request(request)
+            if not response.ok:
+                Exception(f'Cannot retrieve transactions: {response.content}')
+            retrieved_transactions = response.json().get('results', [])
+            transactions.extend(retrieved_transactions)
+            if len(retrieved_transactions) == self.TX_LIMIT:
+                # we need to iterate again - it goes from most recent to less recent
+                min_nonce = min(retrieved_transactions, key=lambda x: x['nonce'])['nonce']
+                current_nonce = min_nonce
+                continue
+            else:
+                # we're done
+                return transactions
+
+
 #
 # Safe information
 #
@@ -87,12 +116,12 @@ def print_safe_stats(safe_address: str, eth_endpoint: str, from_block_number: Op
 
     # Tx Info
     print('\n** TRANSACTION INFO **\n')
-    transaction_service = TransactionServiceApi.from_ethereum_client(ethereum_client=eth_client)
-    transactions = transaction_service.get_transactions(safe_address=safe_address)
+    transaction_service = SafeStatsTransactionServiceApi.from_ethereum_client(ethereum_client=eth_client)
+    transactions = transaction_service.get_all_transactions(safe_address=safe_address)
     executed_transactions = []
-    for transaction in transactions:
+    for i, transaction in enumerate(transactions):
         if not transaction['isExecuted'] or not transaction['isSuccessful']:
-            # don't include non-executed or non-successful transactions
+            # don't include non-executed or unsuccessful transactions
             continue
 
         if transaction['blockNumber'] < from_block_number:
@@ -141,7 +170,7 @@ def print_safe_stats(safe_address: str, eth_endpoint: str, from_block_number: Op
                                               signing_date=MayaDT.from_iso8601(
                                                   confirmation['submissionDate']))
 
-    print(f'Non-owner Executions ......... {num_externally_executed_transactions}')
+    print(f'Non-Signer Executions ........ {num_externally_executed_transactions}')
     print(f'Overall Tx Execution Statistics')
     all_txs_summary_stats = SummaryStats(measurements=tx_execution_times)
     print(f'\tMin Time to Execution ........ {all_txs_summary_stats.min:.0f} mins.')
@@ -152,6 +181,7 @@ def print_safe_stats(safe_address: str, eth_endpoint: str, from_block_number: Op
 
     print('\n** SIGNER INFO **\n')
     print('Signer Statistics')
+
     for signer, signer_stats in signer_stats_dict.items():
         print(f'\tSigner: {signer_stats.signer_address}')
         print(f'\t\tNum Txs Created ............ {signer_stats.num_txs_created} '
@@ -159,15 +189,15 @@ def print_safe_stats(safe_address: str, eth_endpoint: str, from_block_number: Op
         print(f'\t\tNum Txs Signed ............. {signer_stats.num_signings} '
               f'({(signer_stats.num_signings / num_executed_transactions):.1%})')
 
-        # summary stats
-        signing_summary_stats = signer_stats.signing_summary_stats
-        print(f'\t\tSigning statistics for txs signed but not created '
-              f'({signer_stats.num_signings - signer_stats.num_txs_created} txs):')
-        print(f'\t\t\tMin Tx Signing Time ........ {signing_summary_stats.min:.0f} mins.')
-        print(f'\t\t\tMax Tx Signing Time ........ {signing_summary_stats.max:.0f} mins.')
-        print(f'\t\t\tMean Tx Signing Time ....... {signing_summary_stats.mean:.0f} mins.')
-        print(f'\t\t\tMedian Tx Signing Time ..... {signing_summary_stats.median:.0f} mins.')
-        print(f'\t\t\tStdev Tx Signing Time ...... {signing_summary_stats.stdev:.0f} mins.')
+        # # summary stats
+        # signing_summary_stats = signer_stats.signing_summary_stats
+        # print(f'\t\tSigning statistics for txs signed but not created '
+        #       f'({signer_stats.num_signings - signer_stats.num_txs_created} txs):')
+        # print(f'\t\t\tMin Tx Signing Time ........ {signing_summary_stats.min:.0f} mins.')
+        # print(f'\t\t\tMax Tx Signing Time ........ {signing_summary_stats.max:.0f} mins.')
+        # print(f'\t\t\tMean Tx Signing Time ....... {signing_summary_stats.mean:.0f} mins.')
+        # print(f'\t\t\tMedian Tx Signing Time ..... {signing_summary_stats.median:.0f} mins.')
+        # print(f'\t\t\tStdev Tx Signing Time ...... {signing_summary_stats.stdev:.0f} mins.')
 
         print(f'\t\tNum Txs Executed ........... {signer_stats.num_executions} '
               f'({(signer_stats.num_executions / num_executed_transactions):.1%})')
